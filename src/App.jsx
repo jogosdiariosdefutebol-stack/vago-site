@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import logoImg from "./assets/logo.png";
 import {
   ArrowRight,
   MapPin,
@@ -117,10 +118,11 @@ function Label({ children, color = C.cyanLight, dark = true }) {
 
 function Logo({ size = 26 }) {
   return (
-    <span style={{ display: "inline-flex", alignItems: "baseline", fontFamily: fontH, fontWeight: 700, fontSize: size }}>
-      <span style={{ color: C.white }}>Vag</span>
-      <span style={{ color: C.cyanLight, marginLeft: 1 }}>Up</span>
-    </span>
+    <img
+      src={logoImg}
+      alt="VagUp"
+      style={{ height: size * 1.5, width: "auto", display: "block" }}
+    />
   );
 }
 
