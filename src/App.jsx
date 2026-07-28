@@ -1,5 +1,8 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import logoImg from "./assets/logo.png";
+import FormProp from "./pages/FormProp";
+import FormLoc from "./pages/FormLoc";
+import Admin from "./pages/Admin";
 import {
   ArrowRight,
   MapPin,
@@ -206,6 +209,15 @@ function NavBar() {
           ))}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <a href="#/admin" style={{
+            display: window.innerWidth < 900 ? "none" : "flex", alignItems: "center", gap: 6,
+            color: "rgba(255,255,255,0.55)", textDecoration: "none", fontFamily: fontH, fontWeight: 500, fontSize: 13,
+          }}>
+            <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-6-3a2 2 0 11-4 0 2 2 0 014 0zm-2 4a5 5 0 00-4.546 2.916A5.986 5.986 0 0010 16a5.986 5.986 0 004.546-2.084A5 5 0 0010 11z" clipRule="evenodd" />
+            </svg>
+            Admin
+          </a>
           <PrimaryButton href="#cadastro" style={{ display: window.innerWidth < 900 ? "none" : "inline-flex" }}>Me Cadastrar</PrimaryButton>
           <button onClick={() => setOpen(!open)} style={{ background: "none", border: "none", color: "white", cursor: "pointer", display: "none" }} className="nav-burger">
             {open ? <X size={22} /> : <Menu size={22} />}
@@ -269,9 +281,21 @@ function Hero() {
           A VagUp conecta vagas ociosas a moradores e hóspedes autorizados dentro do próprio condomínio — seguro, simples e no seu controle.
         </p>
 
-        <div style={{ display: "flex", gap: 14, marginTop: 40, justifyContent: "center", flexWrap: "wrap" }}>
-          <PrimaryButton big href="#cadastro">Me Cadastrar <ArrowRight size={16} /></PrimaryButton>
-          <SecondaryButton href="#como-funciona" style={{ padding: "16px 28px", fontSize: 14 }}>Quero Saber Mais</SecondaryButton>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "center", marginTop: 40 }}>
+          <a href="#/vaga" style={{
+            background: "#06B6D4", color: "#fff", padding: "14px 28px",
+            borderRadius: 8, fontWeight: 500, fontSize: 15,
+            textDecoration: "none", display: "flex", alignItems: "center", gap: 8,
+          }}>
+            🔑 Tenho uma vaga
+          </a>
+          <a href="#/alugar" style={{
+            background: "#1E293B", color: "#E5E7EB", padding: "14px 28px",
+            borderRadius: 8, fontWeight: 500, fontSize: 15, border: "1px solid rgba(255,255,255,0.13)",
+            textDecoration: "none", display: "flex", alignItems: "center", gap: 8,
+          }}>
+            🚗 Preciso de uma vaga
+          </a>
         </div>
       </div>
     </section>
@@ -901,9 +925,18 @@ function Footer() {
           <div style={{ display: "flex", gap: 24, marginBottom: 16, flexWrap: "wrap" }}>
             {legalLinks.map((l, i) => <a key={i} href="#" style={{ fontFamily: fontB, fontSize: 12.5, color: "rgba(255,255,255,0.3)", textDecoration: "none" }}>{l}</a>)}
           </div>
-          <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
             <p style={{ fontFamily: fontB, fontSize: 12, color: "rgba(255,255,255,0.25)", margin: 0 }}>© 2026 VagUp. Todos os direitos reservados.</p>
             <p style={{ fontFamily: fontB, fontSize: 12, color: "rgba(255,255,255,0.25)", margin: 0 }}>Soluções inteligentes para uma cidade em movimento.</p>
+            <a href="#/admin" style={{
+              fontSize: 12, color: "#475569", textDecoration: "none",
+              display: "flex", alignItems: "center", gap: 4,
+            }}>
+              <svg width="13" height="13" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-6-3a2 2 0 11-4 0 2 2 0 014 0zm-2 4a5 5 0 00-4.546 2.916A5.986 5.986 0 0010 16a5.986 5.986 0 004.546-2.084A5 5 0 0010 11z" clipRule="evenodd" />
+              </svg>
+              Admin
+            </a>
           </div>
         </div>
       </div>
@@ -912,7 +945,7 @@ function Footer() {
 }
 
 /* ============== ROOT ============== */
-export default function VagupLanding() {
+function VagupLanding() {
   return (
     <div style={{ background: C.navy, fontFamily: fontB }}>
       <style>{`
@@ -958,4 +991,21 @@ export default function VagupLanding() {
       <Footer />
     </div>
   );
+}
+
+/* ============== APP (ROTEAMENTO) ============== */
+export default function App() {
+  const [hash, setHash] = useState(window.location.hash);
+
+  useEffect(() => {
+    const handler = () => setHash(window.location.hash);
+    window.addEventListener("hashchange", handler);
+    return () => window.removeEventListener("hashchange", handler);
+  }, []);
+
+  if (hash === "#/vaga") return <FormProp />;
+  if (hash === "#/alugar") return <FormLoc />;
+  if (hash === "#/admin") return <Admin />;
+
+  return <VagupLanding />;
 }
