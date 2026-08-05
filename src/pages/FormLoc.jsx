@@ -1,34 +1,41 @@
 import { useState, useEffect } from "react";
-import { loadDB, saveDB, uid } from "../lib/vagupDb";
+import { fetchCondos, createLoc } from "../lib/vagupDb";
 
 export default function FormLoc() {
   const [condos, setCondos] = useState([]);
   const [form, setForm] = useState({ nome: "", tel: "", condoId: "", dataIn: "", dataOut: "", modelo: "", cor: "", placa: "", obs: "" });
   const [status, setStatus] = useState(null); // 'ok' | 'err'
+  const [errorMsg, setErrorMsg] = useState("Preencha todos os campos obrigatórios.");
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    setCondos(loadDB().condos);
+    fetchCondos().then(setCondos).catch(() => {});
   }, []);
 
   function set(k, v) { setForm((f) => ({ ...f, [k]: v })); }
 
-  function submit() {
+  async function submit() {
     if (!form.nome || !form.tel || !form.condoId || !form.dataIn || !form.dataOut || !form.modelo || !form.placa) {
+      setErrorMsg("Preencha todos os campos obrigatórios.");
       setStatus("err");
       return;
     }
-    const db = loadDB();
-    db.locs.push({
-      id: uid(),
-      ...form,
-      placa: form.placa.toUpperCase(),
-      status: "aguardando",
-      origem: "publico",
-      criadoEm: new Date().toISOString(),
-    });
-    saveDB(db);
-    setStatus("ok");
-    setForm({ nome: "", tel: "", condoId: "", dataIn: "", dataOut: "", modelo: "", cor: "", placa: "", obs: "" });
+    setSaving(true);
+    try {
+      await createLoc({
+        ...form,
+        placa: form.placa.toUpperCase(),
+        status: "aguardando",
+        origem: "publico",
+      });
+      setStatus("ok");
+      setForm({ nome: "", tel: "", condoId: "", dataIn: "", dataOut: "", modelo: "", cor: "", placa: "", obs: "" });
+    } catch (e) {
+      setErrorMsg("Não foi possível enviar. Tente novamente.");
+      setStatus("err");
+    } finally {
+      setSaving(false);
+    }
   }
 
   const inp = { background: "#1E293B", border: "1px solid rgba(255,255,255,0.13)", borderRadius: 8, padding: "9px 12px", fontSize: 13, color: "#E2E8F0", fontFamily: "inherit", outline: "none", width: "100%" };
@@ -52,7 +59,7 @@ export default function FormLoc() {
           <>
             <div style={{ fontFamily: "Syne,sans-serif", fontSize: 17, fontWeight: 700, color: "#fff", marginBottom: 4 }}>Quero alugar uma vaga</div>
             <div style={{ fontSize: 12, color: "#64748B", marginBottom: 20 }}>Informe seus dados e quando precisa da vaga. Entraremos em contato com as opções disponíveis.</div>
-            {status === "err" && <div style={{ background: "rgba(239,68,68,.1)", border: "1px solid rgba(239,68,68,.25)", color: "#EF4444", borderRadius: 8, padding: "10px 12px", fontSize: 12, marginBottom: 14 }}>Preencha todos os campos obrigatórios.</div>}
+            {status === "err" && <div style={{ background: "rgba(239,68,68,.1)", border: "1px solid rgba(239,68,68,.25)", color: "#EF4444", borderRadius: 8, padding: "10px 12px", fontSize: 12, marginBottom: 14 }}>{errorMsg}</div>}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
               <div><label style={lbl}>Nome completo *</label><input style={inp} value={form.nome} onChange={(e) => set("nome", e.target.value)} placeholder="Maria Souza" /></div>
               <div><label style={lbl}>Telefone / WhatsApp *</label><input style={inp} value={form.tel} onChange={(e) => set("tel", e.target.value)} placeholder="(31) 99999-0000" /></div>
@@ -76,8 +83,8 @@ export default function FormLoc() {
                 <textarea style={{ ...inp, resize: "vertical", minHeight: 64 }} value={form.obs} onChange={(e) => set("obs", e.target.value)} placeholder="Alguma necessidade específica?" />
               </div>
             </div>
-            <button onClick={submit} style={{ background: "#06B6D4", color: "#fff", border: "none", borderRadius: 8, padding: 11, width: "100%", fontSize: 14, fontWeight: 500, cursor: "pointer" }}>
-              Enviar solicitação
+            <button onClick={submit} disabled={saving} style={{ background: "#06B6D4", color: "#fff", border: "none", borderRadius: 8, padding: 11, width: "100%", fontSize: 14, fontWeight: 500, cursor: saving ? "default" : "pointer", opacity: saving ? 0.7 : 1 }}>
+              {saving ? "Enviando..." : "Enviar solicitação"}
             </button>
           </>
         )}

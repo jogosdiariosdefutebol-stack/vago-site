@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import Calendario from "./Calendario";
-import { loadDB, saveDB, uid } from "../lib/vagupDb";
+import { fetchCondos, createCondo, createProp } from "../lib/vagupDb";
 
 const NOVO_CONDO = "__novo__";
 
@@ -9,50 +9,59 @@ export default function FormProp() {
   const [form, setForm] = useState({ nome: "", tel: "", vaga: "", diaria: "", condoId: "", obs: "" });
   const [dias, setDias] = useState(new Set());
   const [status, setStatus] = useState(null); // 'ok' | 'err'
+  const [errorMsg, setErrorMsg] = useState("Preencha todos os campos obrigatórios.");
   const [novoCondo, setNovoCondo] = useState({ nome: "", endereco: "", sindico: "" });
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    setCondos(loadDB().condos);
+    fetchCondos().then(setCondos).catch(() => {});
   }, []);
 
   function set(k, v) { setForm((f) => ({ ...f, [k]: v })); }
   function setNovo(k, v) { setNovoCondo((c) => ({ ...c, [k]: v })); }
 
-  function submit() {
+  async function submit() {
     const criandoCondo = form.condoId === NOVO_CONDO;
     if (!form.nome || !form.tel || !form.vaga || !form.diaria || !form.condoId) {
+      setErrorMsg("Preencha todos os campos obrigatórios.");
       setStatus("err");
       return;
     }
     if (criandoCondo && (!novoCondo.nome.trim() || !novoCondo.endereco.trim())) {
+      setErrorMsg("Preencha nome e endereço do novo condomínio.");
       setStatus("err");
       return;
     }
 
-    const db = loadDB();
-    let condoId = form.condoId;
-    if (criandoCondo) {
-      const condo = { id: uid(), ...novoCondo, ativo: true, criadoEm: new Date().toISOString() };
-      db.condos.push(condo);
-      condoId = condo.id;
-      setCondos(db.condos);
+    setSaving(true);
+    try {
+      let condoId = form.condoId;
+      if (criandoCondo) {
+        const condo = await createCondo(novoCondo);
+        condoId = condo.id;
+        setCondos((c) => [...c, condo]);
+      }
+      await createProp({
+        nome: form.nome,
+        tel: form.tel,
+        vaga: form.vaga,
+        diaria: +form.diaria,
+        condoId,
+        obs: form.obs,
+        diasDisponiveis: Array.from(dias),
+        status: "pendente",
+        origem: "publico",
+      });
+      setStatus("ok");
+      setForm({ nome: "", tel: "", vaga: "", diaria: "", condoId: "", obs: "" });
+      setNovoCondo({ nome: "", endereco: "", sindico: "" });
+      setDias(new Set());
+    } catch (e) {
+      setErrorMsg("Não foi possível enviar. Tente novamente.");
+      setStatus("err");
+    } finally {
+      setSaving(false);
     }
-
-    db.props.push({
-      id: uid(),
-      ...form,
-      condoId,
-      diaria: +form.diaria,
-      diasDisponiveis: Array.from(dias),
-      status: "pendente",
-      origem: "publico",
-      criadoEm: new Date().toISOString(),
-    });
-    saveDB(db);
-    setStatus("ok");
-    setForm({ nome: "", tel: "", vaga: "", diaria: "", condoId: "", obs: "" });
-    setNovoCondo({ nome: "", endereco: "", sindico: "" });
-    setDias(new Set());
   }
 
   const inp = { background: "#1E293B", border: "1px solid rgba(255,255,255,0.13)", borderRadius: 8, padding: "9px 12px", fontSize: 13, color: "#E2E8F0", fontFamily: "inherit", outline: "none", width: "100%" };
@@ -76,7 +85,7 @@ export default function FormProp() {
           <>
             <div style={{ fontFamily: "Syne,sans-serif", fontSize: 17, fontWeight: 700, color: "#fff", marginBottom: 4 }}>Cadastrar minha vaga</div>
             <div style={{ fontSize: 12, color: "#64748B", marginBottom: 20 }}>Preencha os dados e escolha seus dias disponíveis.</div>
-            {status === "err" && <div style={{ background: "rgba(239,68,68,.1)", border: "1px solid rgba(239,68,68,.25)", color: "#EF4444", borderRadius: 8, padding: "10px 12px", fontSize: 12, marginBottom: 14 }}>Preencha todos os campos obrigatórios.</div>}
+            {status === "err" && <div style={{ background: "rgba(239,68,68,.1)", border: "1px solid rgba(239,68,68,.25)", color: "#EF4444", borderRadius: 8, padding: "10px 12px", fontSize: 12, marginBottom: 14 }}>{errorMsg}</div>}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
               <div><label style={lbl}>Nome completo *</label><input style={inp} value={form.nome} onChange={(e) => set("nome", e.target.value)} placeholder="João Silva" /></div>
               <div><label style={lbl}>Telefone / WhatsApp *</label><input style={inp} value={form.tel} onChange={(e) => set("tel", e.target.value)} placeholder="(31) 99999-0000" /></div>
@@ -116,8 +125,8 @@ export default function FormProp() {
                 <Calendario selected={dias} onChange={setDias} />
               </div>
             </div>
-            <button onClick={submit} style={{ background: "#06B6D4", color: "#fff", border: "none", borderRadius: 8, padding: 11, width: "100%", fontSize: 14, fontWeight: 500, cursor: "pointer" }}>
-              Cadastrar minha vaga
+            <button onClick={submit} disabled={saving} style={{ background: "#06B6D4", color: "#fff", border: "none", borderRadius: 8, padding: 11, width: "100%", fontSize: 14, fontWeight: 500, cursor: saving ? "default" : "pointer", opacity: saving ? 0.7 : 1 }}>
+              {saving ? "Enviando..." : "Cadastrar minha vaga"}
             </button>
           </>
         )}

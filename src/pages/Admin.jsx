@@ -1,6 +1,13 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Calendario from "./Calendario";
-import { loadDB, saveDB, uid, fmtDate, diasEntre, ADMIN_SENHA } from "../lib/vagupDb";
+import { supabase } from "../lib/supabase";
+import {
+  fetchCondos, createCondo, deleteCondo,
+  fetchProps, createProp, updateProp, deleteProp,
+  fetchLocs, createLoc, updateLoc, deleteLoc,
+  fetchReservas, createReserva, updateReserva, deleteReserva,
+  fmtDate, diasEntre, signIn, signOut,
+} from "../lib/vagupDb";
 
 const CLR = {
   bg: "#0F172A", surf: "#1E293B", surf2: "#263548", surf3: "#2E3E54",
@@ -23,7 +30,7 @@ function Badge({ children, status }) {
   );
 }
 
-function Btn({ children, onClick, variant = "ghost", small, style, type = "button" }) {
+function Btn({ children, onClick, variant = "ghost", small, style, type = "button", disabled }) {
   const variants = {
     primary: { background: CLR.cyan, color: "#fff" },
     success: { background: CLR.green, color: "#fff" },
@@ -31,11 +38,11 @@ function Btn({ children, onClick, variant = "ghost", small, style, type = "butto
     danger: { background: "rgba(239,68,68,0.15)", color: CLR.red, border: "1px solid rgba(239,68,68,0.25)" },
   };
   return (
-    <button type={type} onClick={onClick} style={{
+    <button type={type} onClick={onClick} disabled={disabled} style={{
       display: "inline-flex", alignItems: "center", gap: 7,
       padding: small ? "5px 12px" : "9px 18px", borderRadius: 8,
-      fontSize: small ? 12 : 13, fontWeight: 500, cursor: "pointer", border: "none",
-      fontFamily: "'DM Sans',sans-serif", whiteSpace: "nowrap",
+      fontSize: small ? 12 : 13, fontWeight: 500, cursor: disabled ? "default" : "pointer", border: "none",
+      fontFamily: "'DM Sans',sans-serif", whiteSpace: "nowrap", opacity: disabled ? 0.6 : 1,
       ...variants[variant], ...style,
     }}>
       {children}
@@ -97,21 +104,27 @@ function StatusSelect({ value, options, onChange }) {
   );
 }
 
-function LoginGate({ pwd, setPwd, err, onLogin }) {
+function LoginGate({ email, setEmail, pwd, setPwd, err, loading, onLogin }) {
   return (
     <div style={{ minHeight: "100vh", background: CLR.bg, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <div style={{ background: CLR.surf, border: `1px solid ${CLR.b2}`, borderRadius: 12, padding: 28, maxWidth: 340, width: "100%" }}>
         <div style={{ fontFamily: "Syne,sans-serif", fontSize: 16, fontWeight: 700, color: "#fff", marginBottom: 4 }}>Acesso administrativo</div>
         <div style={{ fontSize: 12, color: CLR.muted, marginBottom: 20 }}>VagUp · Painel interno</div>
-        {err && <div style={{ background: "rgba(239,68,68,.1)", border: "1px solid rgba(239,68,68,.25)", color: CLR.red, borderRadius: 8, padding: "10px 12px", fontSize: 12, marginBottom: 14 }}>Senha incorreta.</div>}
+        {err && <div style={{ background: "rgba(239,68,68,.1)", border: "1px solid rgba(239,68,68,.25)", color: CLR.red, borderRadius: 8, padding: "10px 12px", fontSize: 12, marginBottom: 14 }}>E-mail ou senha incorretos.</div>}
+        <div style={{ marginBottom: 14 }}>
+          <label style={labelStyle}>E-mail</label>
+          <input type="email" style={inputStyle} value={email} autoFocus placeholder="voce@exemplo.com"
+            onChange={(e) => setEmail(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && onLogin()} />
+        </div>
         <div style={{ marginBottom: 14 }}>
           <label style={labelStyle}>Senha</label>
-          <input type="password" style={inputStyle} value={pwd} autoFocus placeholder="••••••••"
+          <input type="password" style={inputStyle} value={pwd} placeholder="••••••••"
             onChange={(e) => setPwd(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && onLogin()} />
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-          <Btn variant="primary" onClick={onLogin}>Entrar</Btn>
+          <Btn variant="primary" onClick={onLogin} disabled={loading}>{loading ? "Entrando..." : "Entrar"}</Btn>
           <a href="#/" style={{ background: CLR.surf2, color: CLR.text, border: `1px solid ${CLR.b2}`, borderRadius: 8, fontSize: 13, textAlign: "center", padding: "9px 18px", textDecoration: "none" }}>Cancelar</a>
         </div>
       </div>
@@ -119,12 +132,23 @@ function LoginGate({ pwd, setPwd, err, onLogin }) {
   );
 }
 
+function FullscreenMessage({ text }) {
+  return (
+    <div style={{ minHeight: "100vh", background: CLR.bg, color: CLR.muted2, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>
+      {text}
+    </div>
+  );
+}
+
 export default function Admin() {
-  const [authed, setAuthed] = useState(false);
+  const [session, setSession] = useState(undefined); // undefined = checking, null = logged out
+  const [email, setEmail] = useState("");
   const [pwd, setPwd] = useState("");
   const [loginErr, setLoginErr] = useState(false);
+  const [loggingIn, setLoggingIn] = useState(false);
 
-  const [db, setDb] = useState(() => loadDB());
+  const [db, setDb] = useState({ condos: [], props: [], locs: [], reservas: [] });
+  const [loadingData, setLoadingData] = useState(false);
   const [page, setPage] = useState("dashboard");
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -143,62 +167,128 @@ export default function Admin() {
   const [editDiasPropId, setEditDiasPropId] = useState(null);
   const [editDias, setEditDias] = useState(new Set());
 
-  function persist(next) { setDb(next); saveDB(next); }
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => setSession(sess));
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (session) loadAll();
+  }, [session]);
+
+  async function loadAll() {
+    setLoadingData(true);
+    try {
+      const [condos, props, locs, reservas] = await Promise.all([fetchCondos(), fetchProps(), fetchLocs(), fetchReservas()]);
+      setDb({ condos, props, locs, reservas });
+    } catch (e) {
+      alert("Erro ao carregar dados: " + e.message);
+    } finally {
+      setLoadingData(false);
+    }
+  }
+
   function condoNome(id) { const c = db.condos.find((x) => x.id === id); return c ? c.nome : "—"; }
 
-  function doLogin() {
-    if (pwd === ADMIN_SENHA) { setAuthed(true); setLoginErr(false); }
-    else setLoginErr(true);
+  async function doLogin() {
+    setLoggingIn(true);
+    setLoginErr(false);
+    try {
+      await signIn(email, pwd);
+    } catch (e) {
+      setLoginErr(true);
+    } finally {
+      setLoggingIn(false);
+    }
   }
 
-  function saveCondo() {
+  async function doLogout() {
+    await signOut();
+    setDb({ condos: [], props: [], locs: [], reservas: [] });
+  }
+
+  async function saveCondo() {
     if (!condoForm.nome.trim() || !condoForm.endereco.trim()) { alert("Preencha nome e endereço."); return; }
-    persist({ ...db, condos: [...db.condos, { id: uid(), ...condoForm, ativo: true, criadoEm: new Date().toISOString() }] });
-    setCondoForm({ nome: "", endereco: "", apts: "", vagas: "", sindico: "", obs: "" });
-    setShowCondoForm(false);
+    try {
+      const condo = await createCondo(condoForm);
+      setDb((d) => ({ ...d, condos: [...d.condos, condo] }));
+      setCondoForm({ nome: "", endereco: "", apts: "", vagas: "", sindico: "", obs: "" });
+      setShowCondoForm(false);
+    } catch (e) { alert("Erro ao salvar condomínio: " + e.message); }
   }
 
-  function saveProp() {
+  async function saveProp() {
     const { nome, tel, vaga, diaria, condoId } = propForm;
     if (!nome || !tel || !vaga || !diaria || !condoId) { alert("Preencha todos os campos obrigatórios."); return; }
-    persist({ ...db, props: [...db.props, { id: uid(), ...propForm, diaria: +diaria, diasDisponiveis: Array.from(propDias), status: "ativo", origem: "admin", criadoEm: new Date().toISOString() }] });
-    setPropForm({ nome: "", tel: "", vaga: "", diaria: "", condoId: "", obs: "" });
-    setPropDias(new Set());
-    setShowPropForm(false);
+    try {
+      const prop = await createProp({ ...propForm, diaria: +diaria, diasDisponiveis: Array.from(propDias), status: "ativo", origem: "admin" });
+      setDb((d) => ({ ...d, props: [...d.props, prop] }));
+      setPropForm({ nome: "", tel: "", vaga: "", diaria: "", condoId: "", obs: "" });
+      setPropDias(new Set());
+      setShowPropForm(false);
+    } catch (e) { alert("Erro ao salvar proprietário: " + e.message); }
   }
 
-  function saveLoc() {
+  async function saveLoc() {
     const { nome, tel, condoId, dataIn, dataOut, modelo, placa } = locForm;
     if (!nome || !tel || !condoId || !dataIn || !dataOut || !modelo || !placa) { alert("Preencha todos os campos obrigatórios."); return; }
-    persist({ ...db, locs: [...db.locs, { id: uid(), ...locForm, placa: placa.toUpperCase(), status: "aguardando", origem: "admin", criadoEm: new Date().toISOString() }] });
-    setLocForm({ nome: "", tel: "", condoId: "", dataIn: "", dataOut: "", modelo: "", cor: "", placa: "", obs: "" });
-    setShowLocForm(false);
+    try {
+      const loc = await createLoc({ ...locForm, placa: placa.toUpperCase(), status: "aguardando", origem: "admin" });
+      setDb((d) => ({ ...d, locs: [...d.locs, loc] }));
+      setLocForm({ nome: "", tel: "", condoId: "", dataIn: "", dataOut: "", modelo: "", cor: "", placa: "", obs: "" });
+      setShowLocForm(false);
+    } catch (e) { alert("Erro ao salvar locatário: " + e.message); }
   }
 
-  function delItem(col, id) {
+  async function delItem(col, id) {
     if (!confirm("Remover este item?")) return;
-    persist({ ...db, [col]: db[col].filter((x) => x.id !== id) });
+    try {
+      if (col === "condos") await deleteCondo(id);
+      else if (col === "props") await deleteProp(id);
+      else if (col === "locs") await deleteLoc(id);
+      else if (col === "reservas") await deleteReserva(id);
+      setDb((d) => ({ ...d, [col]: d[col].filter((x) => x.id !== id) }));
+    } catch (e) { alert("Erro ao remover: " + e.message); }
   }
 
-  function changeStatus(col, id, val) {
-    persist({ ...db, [col]: db[col].map((x) => (x.id === id ? { ...x, status: val } : x)) });
+  async function changeStatus(col, id, val) {
+    try {
+      if (col === "props") await updateProp(id, { status: val });
+      else if (col === "locs") await updateLoc(id, { status: val });
+      else if (col === "reservas") await updateReserva(id, { status: val });
+      setDb((d) => ({ ...d, [col]: d[col].map((x) => (x.id === id ? { ...x, status: val } : x)) }));
+    } catch (e) { alert("Erro ao atualizar status: " + e.message); }
   }
 
-  function criarReserva(locId, propId, valor) {
+  async function criarReserva(locId, propId, valor) {
     const l = db.locs.find((x) => x.id === locId);
     const p = db.props.find((x) => x.id === propId);
     if (!l || !p) return;
     const dias = diasEntre(l.dataIn, l.dataOut);
-    const reserva = { id: uid(), locId, propId, locNome: l.nome, propNome: p.nome, vaga: p.vaga, condoId: l.condoId, dataIn: l.dataIn, dataOut: l.dataOut, dias, valor: +valor, pixEnviado: false, status: "aguardando", criadoEm: new Date().toISOString() };
-    persist({ ...db, reservas: [...db.reservas, reserva], locs: db.locs.map((x) => (x.id === locId ? { ...x, status: "confirmado" } : x)) });
-    setPixReservaId(reserva.id);
-    setPage("reservas");
+    try {
+      const reserva = await createReserva({
+        locId, propId, locNome: l.nome, propNome: p.nome, vaga: p.vaga, condoId: l.condoId,
+        dataIn: l.dataIn, dataOut: l.dataOut, dias, valor: +valor, pixEnviado: false, status: "aguardando",
+      });
+      await updateLoc(locId, { status: "confirmado" });
+      setDb((d) => ({
+        ...d,
+        reservas: [...d.reservas, reserva],
+        locs: d.locs.map((x) => (x.id === locId ? { ...x, status: "confirmado" } : x)),
+      }));
+      setPixReservaId(reserva.id);
+      setPage("reservas");
+    } catch (e) { alert("Erro ao criar reserva: " + e.message); }
   }
 
-  function confirmPix() {
+  async function confirmPix() {
     if (!pixReservaId) return;
-    persist({ ...db, reservas: db.reservas.map((r) => (r.id === pixReservaId ? { ...r, pixEnviado: true, status: "confirmado" } : r)) });
-    setPixReservaId(null);
+    try {
+      await updateReserva(pixReservaId, { pixEnviado: true, status: "confirmado" });
+      setDb((d) => ({ ...d, reservas: d.reservas.map((r) => (r.id === pixReservaId ? { ...r, pixEnviado: true, status: "confirmado" } : r)) }));
+      setPixReservaId(null);
+    } catch (e) { alert("Erro ao confirmar pix: " + e.message); }
   }
 
   function copyPix() {
@@ -213,13 +303,18 @@ export default function Admin() {
     setEditDias(new Set(p.diasDisponiveis || []));
   }
 
-  function saveEditDias() {
+  async function saveEditDias() {
     if (!editDiasPropId) return;
-    persist({ ...db, props: db.props.map((p) => (p.id === editDiasPropId ? { ...p, diasDisponiveis: Array.from(editDias) } : p)) });
-    setEditDiasPropId(null);
+    try {
+      await updateProp(editDiasPropId, { diasDisponiveis: Array.from(editDias) });
+      setDb((d) => ({ ...d, props: d.props.map((p) => (p.id === editDiasPropId ? { ...p, diasDisponiveis: Array.from(editDias) } : p)) }));
+      setEditDiasPropId(null);
+    } catch (e) { alert("Erro ao salvar disponibilidade: " + e.message); }
   }
 
-  if (!authed) return <LoginGate pwd={pwd} setPwd={setPwd} err={loginErr} onLogin={doLogin} />;
+  if (session === undefined) return <FullscreenMessage text="Carregando..." />;
+  if (!session) return <LoginGate email={email} setEmail={setEmail} pwd={pwd} setPwd={setPwd} err={loginErr} loading={loggingIn} onLogin={doLogin} />;
+  if (loadingData) return <FullscreenMessage text="Carregando dados..." />;
 
   const pixReserva = pixReservaId ? db.reservas.find((r) => r.id === pixReservaId) : null;
   const editDiasProp = editDiasPropId ? db.props.find((p) => p.id === editDiasPropId) : null;
@@ -269,13 +364,15 @@ export default function Admin() {
         </nav>
         <div style={{ padding: "14px 10px", borderTop: `1px solid ${CLR.b1}` }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px" }}>
-            <div style={{ width: 30, height: 30, borderRadius: "50%", background: "rgba(6,182,212,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Syne,sans-serif", fontSize: 12, fontWeight: 700, color: CLR.cyan, flexShrink: 0 }}>GV</div>
-            <div>
-              <div style={{ fontSize: 12, fontWeight: 500, color: CLR.text }}>Gabriel &amp; Lucas</div>
-              <div style={{ fontSize: 10, color: CLR.muted }}>Administradores</div>
+            <div style={{ width: 30, height: 30, borderRadius: "50%", background: "rgba(6,182,212,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Syne,sans-serif", fontSize: 12, fontWeight: 700, color: CLR.cyan, flexShrink: 0 }}>
+              {(session.user.email || "?").slice(0, 2).toUpperCase()}
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 12, fontWeight: 500, color: CLR.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{session.user.email}</div>
+              <div style={{ fontSize: 10, color: CLR.muted }}>Administrador</div>
             </div>
           </div>
-          <button onClick={() => setAuthed(false)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 8, cursor: "pointer", color: CLR.muted2, fontSize: 13, fontWeight: 500, width: "100%", border: "none", background: "none", marginTop: 4, textAlign: "left" }}>
+          <button onClick={doLogout} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 8, cursor: "pointer", color: CLR.muted2, fontSize: 13, fontWeight: 500, width: "100%", border: "none", background: "none", marginTop: 4, textAlign: "left" }}>
             Sair
           </button>
         </div>
