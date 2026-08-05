@@ -2,27 +2,46 @@ import { useState, useEffect } from "react";
 import Calendario from "./Calendario";
 import { loadDB, saveDB, uid } from "../lib/vagupDb";
 
+const NOVO_CONDO = "__novo__";
+
 export default function FormProp() {
   const [condos, setCondos] = useState([]);
   const [form, setForm] = useState({ nome: "", tel: "", vaga: "", diaria: "", condoId: "", obs: "" });
   const [dias, setDias] = useState(new Set());
   const [status, setStatus] = useState(null); // 'ok' | 'err'
+  const [novoCondo, setNovoCondo] = useState({ nome: "", endereco: "", sindico: "" });
 
   useEffect(() => {
     setCondos(loadDB().condos);
   }, []);
 
   function set(k, v) { setForm((f) => ({ ...f, [k]: v })); }
+  function setNovo(k, v) { setNovoCondo((c) => ({ ...c, [k]: v })); }
 
   function submit() {
+    const criandoCondo = form.condoId === NOVO_CONDO;
     if (!form.nome || !form.tel || !form.vaga || !form.diaria || !form.condoId) {
       setStatus("err");
       return;
     }
+    if (criandoCondo && (!novoCondo.nome.trim() || !novoCondo.endereco.trim())) {
+      setStatus("err");
+      return;
+    }
+
     const db = loadDB();
+    let condoId = form.condoId;
+    if (criandoCondo) {
+      const condo = { id: uid(), ...novoCondo, ativo: true, criadoEm: new Date().toISOString() };
+      db.condos.push(condo);
+      condoId = condo.id;
+      setCondos(db.condos);
+    }
+
     db.props.push({
       id: uid(),
       ...form,
+      condoId,
       diaria: +form.diaria,
       diasDisponiveis: Array.from(dias),
       status: "pendente",
@@ -32,6 +51,7 @@ export default function FormProp() {
     saveDB(db);
     setStatus("ok");
     setForm({ nome: "", tel: "", vaga: "", diaria: "", condoId: "", obs: "" });
+    setNovoCondo({ nome: "", endereco: "", sindico: "" });
     setDias(new Set());
   }
 
@@ -67,8 +87,25 @@ export default function FormProp() {
                 <select style={inp} value={form.condoId} onChange={(e) => set("condoId", e.target.value)}>
                   <option value="">Selecione o condomínio</option>
                   {condos.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                  <option value={NOVO_CONDO}>+ Cadastrar novo condomínio</option>
                 </select>
               </div>
+              {form.condoId === NOVO_CONDO && (
+                <div style={{ gridColumn: "span 2", background: "#0F172A", border: "1px solid rgba(255,255,255,0.13)", borderRadius: 8, padding: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <div style={{ gridColumn: "span 2" }}>
+                    <label style={lbl}>Nome do condomínio *</label>
+                    <input style={inp} value={novoCondo.nome} onChange={(e) => setNovo("nome", e.target.value)} placeholder="Residencial Central" />
+                  </div>
+                  <div style={{ gridColumn: "span 2" }}>
+                    <label style={lbl}>Endereço completo *</label>
+                    <input style={inp} value={novoCondo.endereco} onChange={(e) => setNovo("endereco", e.target.value)} placeholder="Rua das Flores, 100 - Bairro, Cidade" />
+                  </div>
+                  <div style={{ gridColumn: "span 2" }}>
+                    <label style={lbl}>Responsável / síndico</label>
+                    <input style={inp} value={novoCondo.sindico} onChange={(e) => setNovo("sindico", e.target.value)} placeholder="Nome do síndico ou administradora" />
+                  </div>
+                </div>
+              )}
               <div style={{ gridColumn: "span 2" }}>
                 <label style={lbl}>Observações (opcional)</label>
                 <textarea style={{ ...inp, resize: "vertical", minHeight: 64 }} value={form.obs} onChange={(e) => set("obs", e.target.value)} placeholder="Tipo da vaga, restrições, etc." />
